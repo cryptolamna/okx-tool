@@ -1,3 +1,5 @@
 rich
 python-okx
 web3
+httpx
+retry
