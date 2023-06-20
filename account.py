@@ -1,4 +1,6 @@
 import typing
+import time
+from datetime import datetime
 
 from httpx import Client
 
@@ -6,6 +8,7 @@ from okx.Funding import FundingAPI
 from okx.Account import AccountAPI
 from okx.MarketData import MarketAPI
 from okx.SubAccount import SubAccountAPI
+from okx.NDBroker import NDBrokerAPI
 from okx.consts import API_URL
 
 from retry import retry
@@ -41,6 +44,7 @@ class OkxAccount(object):
     _account: AccountAPI
     _sub: SubAccountAPI
     _market: MarketAPI
+    _broker: NDBrokerAPI
 
     @staticmethod
     def _httpx_client(proxies: typing.Dict[str, str]):
@@ -50,14 +54,21 @@ class OkxAccount(object):
         proxy = utils.make_proxy_dict(proxy)  # Initialize proxy and client
         client = self._httpx_client(proxy)
 
-        self._funding = FundingAPI(api_key, secret_key, passphrase, flag=LIVE_TRADING_FLAG, debug=debug)
+        self._funding = FundingAPI(
+            api_key, secret_key, passphrase, flag=LIVE_TRADING_FLAG, debug=debug)
         self._funding.client = client  # change default client to proxy client
 
-        self._account = AccountAPI(api_key, secret_key, passphrase, flag=LIVE_TRADING_FLAG, debug=debug)
+        self._account = AccountAPI(
+            api_key, secret_key, passphrase, flag=LIVE_TRADING_FLAG, debug=debug)
         self._account.client = client
 
-        self._sub = SubAccountAPI(api_key, secret_key, passphrase, flag=LIVE_TRADING_FLAG, debug=debug)
+        self._sub = SubAccountAPI(
+            api_key, secret_key, passphrase, flag=LIVE_TRADING_FLAG, debug=debug)
         self._sub.client = client
+
+        self._broker = NDBrokerAPI(
+            api_key, secret_key, passphrase, flag=LIVE_TRADING_FLAG, debug=debug)
+        self._broker.client = client
 
         self._market = MarketAPI(flag=LIVE_TRADING_FLAG, debug=debug)
         self._market.client = client
@@ -72,6 +83,35 @@ class OkxAccount(object):
         return {
             asset['instId'].split('-')[0]: float(asset['last']) for asset in assets
         }
+
+    @retry(tries=5, delay=2, logger=None)
+    def get_currencies(self, ccy: str = '', can_deposit: bool | None = True, can_withdraw: bool | None = True) -> typing.List[typing.Dict[str, str | int | bool]]:
+        """
+        Auxiliary method for `min_fee` param
+        :param str ccy: currency to get. '' to get all currencies
+        :param bool | None can_deposit:
+        :param bool | None can_withdraw:
+        :return: list of currencies. More information in OKX docs
+        """
+        currencies = self._funding.get_currencies(ccy)['data']
+        if can_withdraw is None and can_deposit is None:
+            return currencies
+        if can_withdraw is not None:
+            currencies = list(
+                filter(
+                    lambda currency: currency['canWd'] == can_withdraw,
+                    currencies
+                )
+            )
+        if can_deposit is not None:
+            currencies = list(
+                filter(
+                    lambda currency: currency['canDep'] == can_deposit,
+                    currencies
+                )
+            )
+
+        return currencies
 
     @retry(tries=5, delay=2, logger=None)
     def get_sub_list(self, enabled: bool = True, can_trans_out: bool | None = None) -> typing.List[str]:
@@ -151,12 +191,14 @@ class OkxAccount(object):
         }
 
         for sub in sub_list:
-            balances['subs'][sub] = self.get_sub_balance(sub, ccy, only_funding)
+            balances['subs'][sub] = self.get_sub_balance(
+                sub, ccy, only_funding)
 
         for _, balance in balances['subs'].items():
             total = balances['total']
             funding = balance['funding']
-            trading = balance.get('trading', {})  # avoid type error when only_funding = True
+            # avoid type error when only_funding = True
+            trading = balance.get('trading', {})
 
             for ccy, avail_bal in funding.items():
                 if total.get(ccy):  # to sum
@@ -191,7 +233,8 @@ class OkxAccount(object):
         balance = {}
         if amt is None:
             if from_trading is False:
-                balance = self.get_sub_balance(sub_name, ccy, only_funding=True)
+                balance = self.get_sub_balance(
+                    sub_name, ccy, only_funding=True)
             else:
                 balance = self.get_sub_balance(sub_name, ccy)
 
@@ -199,14 +242,16 @@ class OkxAccount(object):
             trading_balance = balance.get('trading', {}).get(ccy, amt)
             if not trading_balance:
                 return
-            self._funding.funds_transfer(ccy, trading_balance, 18, to_account, '2', sub_name)
+            self._funding.funds_transfer(
+                ccy, trading_balance, 18, to_account, '2', sub_name)
 
         def transfer_from_funding():
             """Transfer from sub funding"""
             funding_balance = balance.get('funding', {}).get(ccy, amt)
             if not funding_balance:
                 return
-            self._funding.funds_transfer(ccy, funding_balance, 6, to_account, '2', sub_name)
+            self._funding.funds_transfer(
+                ccy, funding_balance, 6, to_account, '2', sub_name)
 
         """_fetch_trans_id(transfer_from_...) - calling `funds_transfer` and extracting transaction id"""
         if from_trading is None:
@@ -249,7 +294,8 @@ class OkxAccount(object):
             'total': {},
         }
         if with_sub_accounts:
-            balances = self.get_all_subs_balance(ccy=ccy, enabled=sub_enabled, only_funding=only_funding)
+            balances = self.get_all_subs_balance(
+                ccy=ccy, enabled=sub_enabled, only_funding=only_funding)
 
         balances['main'] = {
             'funding': None,
@@ -298,7 +344,8 @@ class OkxAccount(object):
                 continue
             balances['total'][asset] = {
                 'balance': balance,
-                'usd': balance * prices.get(asset, 0)  # non-tradable assets prices will be 0
+                # non-tradable assets prices will be 0
+                'usd': balance * prices.get(asset, 0)
             }
 
         return balances
@@ -323,9 +370,107 @@ class OkxAccount(object):
         if not amt:
             return None
 
-        transaction = self._funding.funds_transfer(ccy, amt, 18, 6)  # 18 - from trading; 6 - to funding
+        transaction = self._funding.funds_transfer(
+            ccy, amt, 18, 6)  # 18 - from trading; 6 - to funding
 
         return _fetch_trans_id(transaction)
 
-    def withdraw(self, ccy: str, amt: float | str | int | None = None):
-        pass
+    @retry(tries=5, delay=1, logger=None)
+    def withdraw(self, addr: str, ccy: str, chain: str, amt: float | str | int | None = None,
+                 min_fee: str | None = None) -> str:
+        """
+        Method for withdrawing to blockchain
+        :param str addr: wallet address to withdraw
+        :param str ccy: currency to withdraw
+        :param str chain: chain to withdraw
+        :param float | str | int| None amt: amount to withdraw. If None entire balance will be withdrawn
+        :param str | None min_fee: min_fee to withdraw. If None min_fee will be got from `get_currencies` method
+        :return: `withdrawId`
+        """
+        if min_fee is None:
+            currency = self.get_currencies(ccy)[0]
+            min_fee = currency.get('minFee', '')
+
+        if amt is None:
+            funding = self._funding.get_balances(ccy)['data']
+            balances = {asset['ccy']: float(asset['availBal']) for asset in
+                        funding}  # convert to dict CCY: BALANCE
+            amt = balances.get(ccy, 0)
+
+        result = self._funding.withdrawal(
+            ccy, amt, 4, addr, min_fee, f'{ccy}-{chain}')
+        if result.get('code', '') != '0':
+            raise Exception(result.get('msg', ''))
+
+        result = result['data']
+        if len(result) < 1:
+            raise Exception('No withdraw')
+
+        return result[0].get('wdId', '')
+
+    @retry(tries=5, delay=1, logger=None)
+    def cancel_withdrawal(self, wd_id: str) -> bool:
+        """
+        Method for cancelling withdraw
+        :param str wd_id: `withdrawId` from `withdraw` method
+        :return: result of cancellation. True - successful. False - unsuccessful
+        """
+        return self._funding.cancel_withdrawal(wd_id).get('code', '') == '0'
+
+    @retry(tries=5, delay=1, logger=None)
+    def withdrawal_history(self, ccy: str = '', chain: str | None = None, before: str | datetime = '',
+                           after: str | datetime = '') -> typing.List[typing.Dict[str | any]]:
+        """
+        Get withdrawal history on main account
+        :param str ccy: currency to get withdraw history. '' to get all withdrawals
+        :param str | None chain: chain to filter. If None all withdrawals will be got
+        :param str | datetime before: time to filter
+        :param str | datetime after: time to filter
+        :return: list of withdrawals. Same as OKX Docs
+        """
+        if before is datetime:
+            before = int(time.mktime(before.timetuple()) * 1000)
+        if after is datetime:
+            after = int(time.mktime(after.timetuple()) * 1000)
+        history = self._funding.get_withdrawal_history(
+            ccy,
+            after=str(after),
+            before=str(before),
+        )['data']
+
+        if chain is not None:
+            history = list(
+                filter(
+                    lambda withdrawal: chain in withdrawal['chain'].split(
+                        '-')[-1],
+                    history
+                )
+            )
+
+        return history
+
+    @retry(tries=5, delay=1, logger=None)
+    def deposit_address(self, ccy: str, chain: str | None = None) -> typing.List[typing.Dict[str | typing.Any] | str]:
+        """
+        Method for getting deposit addresses on main account
+        :param str ccy: currency to get dep. address
+        :param str | None chain: filter by chain. If None all chains will be returned
+        :return: If chain is None will be returned list of addresses as OKX return. If chain is some will be returned list of addresses e.g [0x00..01, 0x00..02, 0x00..03]
+        """
+        addresses = self._funding.get_deposit_address(ccy)['data']
+
+        if chain is not None:
+            addresses = filter(
+                lambda address: address['chain'].replace(
+                    f'{ccy}-', '') == chain,
+                addresses
+            )
+
+            return list(
+                map(
+                    lambda address: address['addr'],
+                    addresses
+                )
+            )
+
+        return addresses
