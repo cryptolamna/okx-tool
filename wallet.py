@@ -41,7 +41,7 @@ class Wallet:
     @retry(tries=15, delay=4.5, logger=None)
     def balance(self, token: str | ChecksumAddress | None = None) -> Wei:
         """
-
+        Method for getting token balance
         :param str | ChecksumAddress | None token: None - eth. Address | str - erc20 token
         :return: balance in wei
         """
@@ -58,10 +58,10 @@ class Wallet:
 
     def _transfer_native(self, amount: Wei, to: ChecksumAddress):
         """
-
-        :param amount:
-        :param to:
-        :return:
+        Method for transferring eth
+        :param amount: amount to transfer
+        :param to: address to transfer
+        :return: rawTransaction
         """
         tx = {
             'type': '0x2',
@@ -77,11 +77,11 @@ class Wallet:
 
     def _transfer_token(self, token: ChecksumAddress, amount: Wei, to: ChecksumAddress):
         """
-
-        :param token:
-        :param amount:
-        :param to:
-        :return:
+        Method for transferring tokens
+        :param token: token to transfer
+        :param amount: amount to transfer
+        :param to: address to transfer
+        :return: rawTransaction
         """
         token = self._tokens[token]
 
@@ -98,11 +98,11 @@ class Wallet:
     @retry(tries=15, delay=5, logger=None)
     def transfer(self, amount: Wei, to: ChecksumAddress | str, token: str | ChecksumAddress | None = None):
         """
-
-        :param amount:
-        :param to:
-        :param token:
-        :return:
+        Method for transferring funds from wallet
+        :param Wei amount: amount to transfer in wei
+        :param str | ChecksumAddress to: address to transfer
+        :param str | ChecksumAddress | None token: token to transfer. If none - eth.
+        :return: transaction hash
         """
         if token is None:
             raw_tx = self._transfer_native(amount, self._rpc.to_checksum_address(to))
