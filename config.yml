@@ -1,0 +1,13 @@
+okx:
+  api-key: API_KEY_HERE
+  secret-key: SECRET_KEY_HERE
+  passphrase: PASSPHRASE_HERE
+
+  proxy:
+
+  use-subs: true
+  only-funding: false
+
+evm:
+  rpc-url: RPC_URL
+  default-headers: ''
