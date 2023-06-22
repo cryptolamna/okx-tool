@@ -3,3 +3,4 @@ python-okx
 web3
 httpx
 retry
+pyyaml
