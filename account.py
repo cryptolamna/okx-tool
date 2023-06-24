@@ -388,7 +388,7 @@ class OkxAccount(object):
         :return: `withdrawId`
         """
         if min_fee is None:
-            currency = self.get_currencies(ccy)[0]
+            currency = [ccy for ccy in self.get_currencies(ccy) if ccy['chain'] == chain][0]
             min_fee = currency.get('minFee', '')
 
         if amt is None:
@@ -398,7 +398,7 @@ class OkxAccount(object):
             amt = balances.get(ccy, 0)
 
         result = self._funding.withdrawal(
-            ccy, amt, 4, addr, min_fee, f'{ccy}-{chain}')
+            ccy, amt, 4, addr, min_fee, chain)
         if result.get('code', '') != '0':
             raise Exception(result.get('msg', ''))
 
@@ -419,7 +419,7 @@ class OkxAccount(object):
 
     @retry(tries=5, delay=1, logger=None)
     def withdrawal_history(self, ccy: str = '', chain: str | None = None, before: str | datetime = '',
-                           after: str | datetime = '') -> typing.List[typing.Dict[str | any]]:
+                           after: str | datetime = '') -> typing.List[typing.Dict[str, typing.Any]]:
         """
         Get withdrawal history on main account
         :param str ccy: currency to get withdraw history. '' to get all withdrawals
@@ -450,7 +450,7 @@ class OkxAccount(object):
         return history
 
     @retry(tries=5, delay=1, logger=None)
-    def deposit_address(self, ccy: str, chain: str | None = None) -> typing.List[typing.Dict[str | typing.Any] | str]:
+    def deposit_address(self, ccy: str, chain: str | None = None) -> typing.List[typing.Dict[str, typing.Any] | str]:
         """
         Method for getting deposit addresses on main account
         :param str ccy: currency to get dep. address

@@ -4,3 +4,4 @@ web3
 httpx
 retry
 pyyaml
+beaupy
